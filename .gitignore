@@ -1,0 +1,9 @@
+# Binary files
+*.cubin
+*.out
+*.so
+*.a
+*.o
+
+# Other files
+*~
