@@ -14,8 +14,8 @@ void check(ErrorType err, const char* const func, const char* const file, const 
         exit(1);
     }
 }
-#define checkCudaErrors(val) check( (val), #val, __FILE__, __LINE__)
 
+#define checkCudaErrors(val) check( (val), #val, __FILE__, __LINE__)
 
 
 __device__
@@ -170,10 +170,10 @@ float PeakBandwidth(int devID)
     else
     {
         printf("\nGPUDevice %d:  %s\nCompute cap:  %d.%d\n",
-        		devID,
-        		deviceProp.name,
-        		deviceProp.major,
-        		deviceProp.minor);
+            devID,
+            deviceProp.name,
+            deviceProp.major,
+            deviceProp.minor);
     }
     const int clockRate = deviceProp.memoryClockRate; // [KHz]
     const int memWidth = deviceProp.memoryBusWidth;   // [bits]
@@ -201,10 +201,12 @@ int main(int argc, char** argv)
         Peak bandwidth:         128.256 [GB/s]
         Effective bandwidth:    110.380 [GB/s]  86.062 % of peak!
         Perfectly correct! GPU sum reduction: 172032000
+
+        const int ARRAY_SIZE = CTAs * 256 * 400; // 82% of peak
+        const int ARRAY_SIZE = CTAs * 256 * 800; // 84% of peak
     */
-    //const int ARRAY_SIZE = CTAs * 256 * 400; // 82% of peak
-    //const int ARRAY_SIZE = CTAs * 256 * 800; // 84% of peak
-    const int ARRAY_SIZE = CTAs * 256 * tilesPerCTA;   // 6 553 600   ( 6.5 M)  0.244736 [ms]
+
+    const int ARRAY_SIZE = CTAs * 256 * tilesPerCTA;
 
     typedef int Element;
 
@@ -219,10 +221,10 @@ int main(int argc, char** argv)
 
     Element* d_array;
     Element* d_totals;
-    checkCudaErrors(cudaMalloc((void**) &d_array, ARRAY_SIZE * sizeof(Element)));
-    checkCudaErrors(cudaMalloc((void**) &d_totals, CTAs * sizeof(Element)));
+    checkCudaErrors(cudaMalloc((void**) &d_array,  sizeof(Element) * ARRAY_SIZE));
+    checkCudaErrors(cudaMalloc((void**) &d_totals, sizeof(Element) * CTAs));
 
-    checkCudaErrors(cudaMemcpy(d_array, h_array.data(), ARRAY_SIZE * sizeof(Element), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_array, h_array.data(), sizeof(Element) * ARRAY_SIZE, cudaMemcpyHostToDevice));
 
     cudaEvent_t start, stop;
     checkCudaErrors(cudaEventCreate(&start));
@@ -238,20 +240,22 @@ int main(int argc, char** argv)
     float totalTimeMsec = 0.0f;
     checkCudaErrors(cudaEventElapsedTime(&totalTimeMsec, start, stop));
 
-    const size_t loadedBytes = ARRAY_SIZE * sizeof(Element) + CTAs * sizeof(Element);;
+    const size_t loadedBytes = ARRAY_SIZE * sizeof(Element) + CTAs * sizeof(Element);
     const size_t storedBytes = 2 * CTAs * sizeof(Element);
-    const float effectiveBandwidth = (loadedBytes+storedBytes)/totalTimeMsec/1.0e6;
+    const float effectiveBandwidth = (loadedBytes + storedBytes)/totalTimeMsec/1.0e6;
 
     printf("Computation time:         %f [ms]\n", totalTimeMsec);
     printf("Peak bandwidth:         %.3f [GB/s]\n", peakBandwidth);
-    printf("Effective bandwidth:    %.3f [GB/s]  %.3f %% of peak!\n", effectiveBandwidth,
-            100 * effectiveBandwidth / peakBandwidth);
+    printf("Effective bandwidth:    %.3f [GB/s]  %.3f %% of the peak!\n",
+            effectiveBandwidth,
+            (effectiveBandwidth / peakBandwidth) * 100);
 
     checkCudaErrors(cudaEventDestroy(start));
     checkCudaErrors(cudaEventDestroy(stop));
 
     checkCudaErrors(cudaMemcpy(h_totals.data(), d_totals, CTAs * sizeof(Element), cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaFree(d_array));
+    checkCudaErrors(cudaFree(d_totals));
     checkCudaErrors(cudaDeviceReset());
 
     CompareResults(seqresult, h_totals.front());
