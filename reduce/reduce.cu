@@ -41,20 +41,28 @@ void ReduceCTA(volatile int* smem, int CTA_SIZE)
     }
 }
 
+
+template <typename T> struct Accum;
+template <> struct Accum<int>  { __device__ __host__ inline static int apply(int  a) { return a; } };
+template <> struct Accum<int2> { __device__ __host__ inline static int apply(int2 a) { return a.x + a.y; } };
+template <> struct Accum<int4> { __device__ __host__ inline static int apply(int4 a) { return a.x + a.y + a.z + a.w; } };
+
+template<typename T>
 __global__
-void ReduceThreadblocksKernel(const int* const array, int* const totals, int N, int B)
+void ReduceThreadblocksKernel(const T* const array, int* const totals, int N, int B)
 {
-    const int* datatile = array + B * blockDim.x * blockIdx.x;
+    const T* datatile = array + B * blockDim.x * blockIdx.x;
     const int tid = threadIdx.x;
 
     int accum = 0;
     int tile = 0;
-    int element = 0;
+
+    T element = {0};
 
     while (tile++ < B)
     {
         element = datatile[tid];
-        accum += element;
+        accum += Accum<T>::apply(element);
         datatile += blockDim.x;
     }
 
@@ -93,27 +101,39 @@ void ReduceTotalsKernel(int* const totals)
  */
 const int CTAs = 64;
 
-template <typename ElementType>
+// Map number of elements per load to type
+template<int ELEMENTS_PER_LOAD> struct LoadTraits;
+template<> struct LoadTraits<1> { typedef int  Type; };
+template<> struct LoadTraits<2> { typedef int2 Type; };
+template<> struct LoadTraits<4> { typedef int4 Type; };
+
+
+template <typename ElementType, int ELEMENTS_PER_LOAD>
 void ParallelReduce(const ElementType* const array, ElementType* const totals, int N)
 {
     /*
      * Parallel REDUCE
      * Assume that size is multiply of C*T (N = k *(C*T) for some k > 0)
      */
-    const int C = CTAs;    // CTAs number
-    const int T = 256;     // Tile size
-    const int B = N/(T*C); // Tiles per CTA
+    const int C = CTAs;        // CTAs number
+    const int T = 256;         // Tile size
+    const int E = ELEMENTS_PER_LOAD; // load 1, 2 or 4 consecutive 4-byte words per thread
+    const int B = (N/(T*C))/E; // Tiles per CTA
 
     const dim3 gridDim(C);
     const dim3 blockDim(T);
 
     //printf("C:  %d\n", C);
     //printf("T:  %d\n", T);
+    //printf("E:  %d\n", E);
     //printf("B:  %d\n", B);
     //printf("GridDim:   (%d %d %d)\n", gridDim.x, gridDim.y, gridDim.z);
     //printf("BlockDim:  (%d %d %d)\n", blockDim.x, blockDim.y, blockDim.z);
 
-    ReduceThreadblocksKernel<<<gridDim, blockDim, T * sizeof(ElementType)>>>(array, totals, N, B);
+    typedef typename LoadTraits<ELEMENTS_PER_LOAD>::Type LoadType;
+
+    ReduceThreadblocksKernel<LoadType>
+        <<<gridDim, blockDim, T * sizeof(ElementType)>>>((const LoadType*)array, totals, N, B);
     //checkCudaErrors(cudaDeviceSynchronize());
 
     ReduceTotalsKernel<<<1, C, C * sizeof(ElementType)>>>(totals);
@@ -183,24 +203,29 @@ float PeakBandwidth(int devID)
 int main(int argc, char** argv)
 {
     int tilesPerCTA = 200;
-    if (argc > 1)
+    int elementsPerThread = 1;
+    if (argc > 2)
     {
         tilesPerCTA = atoi(argv[1]);
+        elementsPerThread = atoi(argv[2]);
     }
 
     int devID = 0;
     const float peakBandwidth = PeakBandwidth(devID);
     /*
-        const int ARRAY_SIZE = CTAs * 256 * 10500; // 172,032,000 elem --> 688,128,000 B
+        const int ARRAY_SIZE = CTAs * 256 * 10000;
+
+        $ ./Reduce 10000 2
 
         GPUDevice 0:  GeForce GTX 560 Ti
         Compute cap:  2.1
-        Problem size: 172032000
+        Problem size: 163840000
         CTAs number:  64
-        Computation time:       6.234176   [ms]
+        Computation time:         5.800864 [ms]
         Peak bandwidth:         128.256 [GB/s]
-        Effective bandwidth:    110.380 [GB/s]  86.062 % of peak!
-        Perfectly correct! GPU sum reduction: 172032000
+        Effective bandwidth:    112.976 [GB/s]  88.087 % of the peak!
+        Perfectly correct!
+        GPU sum reduction: 163840000
 
         const int ARRAY_SIZE = CTAs * 256 * 400; // 82% of peak
         const int ARRAY_SIZE = CTAs * 256 * 800; // 84% of peak
@@ -232,7 +257,21 @@ int main(int argc, char** argv)
 
     checkCudaErrors(cudaEventRecord(start, 0));
 
-    ParallelReduce(d_array, d_totals, ARRAY_SIZE);
+    switch (elementsPerThread)
+    {
+    default:
+        printf("ERROR: Chose int/int2/int4\n");
+        break;
+    case 1:
+        ParallelReduce<Element, 1>(d_array, d_totals, ARRAY_SIZE);
+        break;
+    case 2:
+        ParallelReduce<Element, 2>(d_array, d_totals, ARRAY_SIZE);
+        break;
+    case 4:
+        ParallelReduce<Element, 4>(d_array, d_totals, ARRAY_SIZE);
+        break;
+    }
 
     checkCudaErrors(cudaEventRecord(stop, 0));
     checkCudaErrors(cudaEventSynchronize(stop));
