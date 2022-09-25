@@ -121,7 +121,7 @@ void MeasureInOutVariableGrid(
     const size_t storedBytes = bytes;
     const float effectiveBandwidth = (loadedBytes + storedBytes)/totalTimeMsec/1.0e6;
 
-    printf("IN-OUT-%d   %4d [CTASIZE]    %5d [GRID]    %2d [Bytes/element]    "
+    printf("IN-OUT-%d   %4d [CTASIZE]    %5d [GRID]    %2zd [Bytes/element]    "
             "%f [ms]    %7.3f [GB/s]    %7.3f [GB/s]    %7.3f %% of peak\n",
             E, T, grid.x, sizeof(ElementType),
             totalTimeMsec, peakBandwidth, effectiveBandwidth, (effectiveBandwidth / peakBandwidth) * 100);
@@ -154,7 +154,7 @@ void MeasureCudaMemcpy(
     const size_t storedBytes = bytes;
     const float effectiveBandwidth = (loadedBytes + storedBytes)/totalTimeMsec/1.0e6;
 
-    printf("MEMCPY     %4d [CTASIZE]    %5d [GRID]    %2d [Bytes/element]    "
+    printf("MEMCPY     %4d [CTASIZE]    %5d [GRID]    %2zd [Bytes/element]    "
             "%f [ms]    %7.3f [GB/s]    %7.3f [GB/s]    %7.3f %% of peak\n",
             0, 0, sizeof(float),
             totalTimeMsec, peakBandwidth, effectiveBandwidth, (effectiveBandwidth / peakBandwidth) * 100);
@@ -218,7 +218,7 @@ int main(int argc, char** argv)
     std::vector<float> h_source(ARRAY_SIZE);
     CreateSample(h_source);
 
-    printf("Problem size: %d\n", ARRAY_SIZE);
+    printf("Problem size: %zd\n", ARRAY_SIZE);
 
     float* d_source;
     float* d_dest;

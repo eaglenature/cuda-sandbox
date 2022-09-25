@@ -1,4 +1,7 @@
 # Binary files
+*.exe
+*.exp
+*.lib
 *.cubin
 *.out
 *.so
@@ -7,3 +10,6 @@
 
 # Other files
 *~
+
+# Directories
+build/
